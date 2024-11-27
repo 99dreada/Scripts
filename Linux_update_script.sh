@@ -14,24 +14,30 @@ check_os() {
 
 # Function to update the system based on the OS
 update_system() {
+    echo "Updating system..."
+    
+    # Show progress bar while running the update process
     case $OS in
         centos)
-            echo "Detected CentOS $VERSION. Updating system..."
-            sudo yum update -y
+            # Run update silently and show a progress bar
+            (sudo yum update -y > /dev/null 2>&1 & echo -n "Updating CentOS $VERSION. Please wait..."; while kill -0 $!; do echo -n "."; sleep 1; done; echo " Done.") &
             ;;
         ubuntu)
-            echo "Detected Ubuntu $VERSION. Updating system..."
-            sudo apt update && sudo apt upgrade -y
+            # Run update silently and show a progress bar
+            (sudo apt update && sudo apt upgrade -y > /dev/null 2>&1 & echo -n "Updating Ubuntu $VERSION. Please wait..."; while kill -0 $!; do echo -n "."; sleep 1; done; echo " Done.") &
             ;;
         debian)
-            echo "Detected Debian $VERSION. Updating system..."
-            sudo apt update && sudo apt upgrade -y
+            # Run update silently and show a progress bar
+            (sudo apt update && sudo apt upgrade -y > /dev/null 2>&1 & echo -n "Updating Debian $VERSION. Please wait..."; while kill -0 $!; do echo -n "."; sleep 1; done; echo " Done.") &
             ;;
         *)
             echo "Unsupported operating system: $OS"
             exit 1
             ;;
     esac
+
+    wait # Wait for the background update process to finish
+    echo -e "\nSystem update completed successfully."
 }
 
 # Function to create a user with sudo privileges and add the provided SSH key
@@ -40,31 +46,18 @@ create_user() {
     SSH_PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCHrlhlbYMv8bWeMeKaV9lpol6WcM2fUXlxdPX7oVBC2HngQcySnnsw4M3QnS8bkSOrSsCAsM5UIeAFrEqXfrjtcKl0R6KH1w8OAmfRA4DXTHGhM4VNcsrWx1EsBbVlxTdr5AcF8X3enHb6WEuGO/7pBS41Ng2C9r4GVSR1QpNyaghkmuBdp1ZZO4jLTnKmgqhBz21lEmxJ1V0WbQfEPl6ig98owRmOaJZ3701Q3hhVIHrl9Yd8IOYGSgGiLT3wYVmE5XOaAJgRiBdUhORJG6irXf1AsuGoa0P/kiIjFjXbHyVIfLxwo6QFITe7tFft4Ded0JSNDv+YNDf4Md5MMc+X rsa-key-20241127"
 
     echo "Creating user $USERNAME..."
-    
+
     # Check if user already exists
     if id "$USERNAME" &>/dev/null; then
         echo "User $USERNAME already exists."
     else
-        # Create the user
-        sudo useradd -m -s /bin/bash "$USERNAME"
-        
-        # Set the password
-        echo "Please set a password for $USERNAME:"
-        sudo passwd "$USERNAME"
-        
-        # Add user to sudoers group
-        case $OS in
-            centos)
-                sudo usermod -aG wheel "$USERNAME"
-                ;;
-            ubuntu|debian)
-                sudo usermod -aG sudo "$USERNAME"
-                ;;
-        esac
+        # Create the user with disabled password and set home directory
+        sudo useradd -m -s /bin/bash -G sudo "$USERNAME"
 
-        echo "User $USERNAME created and added to the sudoers group."
+        # Lock the password to disable password login
+        sudo passwd -l "$USERNAME"
 
-        # Set up SSH directory and permissions
+        # Add the SSH public key
         echo "Setting up SSH access for $USERNAME..."
         SSH_DIR="/home/$USERNAME/.ssh"
         AUTH_KEYS="$SSH_DIR/authorized_keys"
@@ -72,18 +65,36 @@ create_user() {
         sudo chmod 700 "$SSH_DIR"
         sudo chown "$USERNAME:$USERNAME" "$SSH_DIR"
 
-        # Add the provided SSH public key to the authorized_keys file
+        # Add the public key and set permissions
         echo "$SSH_PUBLIC_KEY" | sudo tee -a "$AUTH_KEYS" > /dev/null
         sudo chmod 600 "$AUTH_KEYS"
         sudo chown "$USERNAME:$USERNAME" "$AUTH_KEYS"
-        
-        # Enhance security: Make authorized_keys file immutable and restrict permissions
-        sudo chattr +i "$AUTH_KEYS"
-        sudo chmod 600 "$AUTH_KEYS"
+        sudo chattr +i "$AUTH_KEYS"  # Make the authorized_keys file immutable
 
-        echo -e "SSH key has been added to /home/$USERNAME/.ssh/authorized_keys.\n"
-        echo "You can now use the private key corresponding to the provided public key to log in as $USERNAME."
+        echo -e "SSH key has been added to /home/$USERNAME/.ssh/authorized_keys."
     fi
+}
+
+# Function to configure SSH for key-only login, disable root login, disable password login, and make sshd_config immutable
+configure_ssh() {
+    SSH_CONFIG="/etc/ssh/sshd_config"
+
+    echo "Configuring SSH to disable password authentication and root login..."
+
+    # Disable password authentication and root login
+    sudo sed -i 's/^#*\(PasswordAuthentication\s*\).*$/\1no/' "$SSH_CONFIG"
+    sudo sed -i 's/^#*\(ChallengeResponseAuthentication\s*\).*$/\1no/' "$SSH_CONFIG"
+    sudo sed -i 's/^#*\(UsePAM\s*\).*$/\1no/' "$SSH_CONFIG"  # Disable PAM (which includes password login)
+    sudo sed -i 's/^#*\(PermitRootLogin\s*\).*$/\1no/' "$SSH_CONFIG"
+
+    # Ensure public key authentication is enabled
+    sudo sed -i 's/^#*\(PubkeyAuthentication\s*\).*$/\1yes/' "$SSH_CONFIG"
+
+    # Make the SSH configuration file immutable
+    sudo chattr +i "$SSH_CONFIG"
+
+    # Restart the SSH service
+    restart_ssh
 }
 
 # Function to restart the SSH service based on the OS
@@ -134,5 +145,6 @@ display_putty_instructions() {
 check_os
 update_system
 create_user
+configure_ssh
 restart_ssh
 display_putty_instructions
