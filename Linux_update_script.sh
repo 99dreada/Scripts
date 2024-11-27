@@ -43,7 +43,7 @@ update_system() {
 # Function to create a user with sudo privileges and add the provided SSH key
 create_user() {
     USERNAME="btadmin"
-    SSH_PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCHrlhlbYMv8bWeMeKaV9lpol6WcM2fUXlxdPX7oVBC2HngQcySnnsw4M3QnS8bkSOrSsCAsM5UIeAFrEqXfrjtcKl0R6KH1w8OAmfRA4DXTHGhM4VNcsrWx1EsBbVlxTdr5AcF8X3enHb6WEuGO/7pBS41Ng2C9r4GVSR1QpNyaghkmuBdp1ZZO4jLTnKmgqhBz21lEmxJ1V0WbQfEPl6ig98owRmOaJZ3701Q3hhVIHrl9Yd8IOYGSgGiLT3wYVmE5XOaAJgRiBdUhORJG6irXf1AsuGoa0P/kiIjFjXbHyVIfLxwo6QFITe7tFft4Ded0JSNDv+YNDf4Md5MMc+X rsa-key-20241127"
+    SSH_PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDmvmMUNL/JYqcDQMN/76XD7f3CvdNunTQV3OLmdPD5nV787feNt2BFimMxeFndoFE/OjmdYT0/SiDJ357UTW+tyWAJKPAHumpfV3FBa8ewxZOahxbeI88WSQwMCp99h6trr/xD9bvhIC1NN08Dl+fszH5uuwNisge3SSUcYL0NwimdYuY2M57xTOuq3a+XKOaJYoNh8ceA6/4SLUntByne7yXeRcqz40gD83EcO6YV2PgUaHPBwgPOEtswrUVQje2K9wSXx+6/kbtDPw1MABJxaX380T9fh2a9nMWfjjKQhdQ9lOsJxzhgt/uw6+EcwhIx/ZbfeR/MWnc29QOLv81Z rsa-key-20241127"
 
     echo "Creating user $USERNAME..."
 
