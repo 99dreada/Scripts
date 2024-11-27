@@ -34,9 +34,11 @@ update_system() {
     esac
 }
 
-# Function to create a user with sudo privileges and SSH setup
+# Function to create a user with sudo privileges and add the provided SSH key
 create_user() {
     USERNAME="btadmin"
+    SSH_PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCHrlhlbYMv8bWeMeKaV9lpol6WcM2fUXlxdPX7oVBC2HngQcySnnsw4M3QnS8bkSOrSsCAsM5UIeAFrEqXfrjtcKl0R6KH1w8OAmfRA4DXTHGhM4VNcsrWx1EsBbVlxTdr5AcF8X3enHb6WEuGO/7pBS41Ng2C9r4GVSR1QpNyaghkmuBdp1ZZO4jLTnKmgqhBz21lEmxJ1V0WbQfEPl6ig98owRmOaJZ3701Q3hhVIHrl9Yd8IOYGSgGiLT3wYVmE5XOaAJgRiBdUhORJG6irXf1AsuGoa0P/kiIjFjXbHyVIfLxwo6QFITe7tFft4Ded0JSNDv+YNDf4Md5MMc+X rsa-key-20241127"
+
     echo "Creating user $USERNAME..."
     
     # Check if user already exists
@@ -59,49 +61,78 @@ create_user() {
                 sudo usermod -aG sudo "$USERNAME"
                 ;;
         esac
-        
+
         echo "User $USERNAME created and added to the sudoers group."
 
         # Set up SSH directory and permissions
         echo "Setting up SSH access for $USERNAME..."
         SSH_DIR="/home/$USERNAME/.ssh"
+        AUTH_KEYS="$SSH_DIR/authorized_keys"
         sudo mkdir -p "$SSH_DIR"
         sudo chmod 700 "$SSH_DIR"
         sudo chown "$USERNAME:$USERNAME" "$SSH_DIR"
 
-        # Create an authorized_keys file
-        AUTH_KEYS="$SSH_DIR/authorized_keys"
-        sudo touch "$AUTH_KEYS"
+        # Add the provided SSH public key to the authorized_keys file
+        echo "$SSH_PUBLIC_KEY" | sudo tee -a "$AUTH_KEYS" > /dev/null
         sudo chmod 600 "$AUTH_KEYS"
         sudo chown "$USERNAME:$USERNAME" "$AUTH_KEYS"
         
-        # Instructions for generating SSH key
-        echo -e "\nTo configure SSH access, follow these steps:\n"
-        echo "1. Generate an SSH key pair on Windows using PuTTYgen:"
-        echo "   a. Download PuTTYgen: https://www.putty.org/"
-        echo "   b. Open PuTTYgen and click 'Generate'."
-        echo "   c. Move your mouse randomly in the key area to generate the key."
-        echo "   d. Copy the public key from the 'Public key for pasting into OpenSSH authorized_keys file' field."
-        echo "2. Save the private key using PuTTYgen for use with PuTTY (as a .ppk file)."
-        echo "3. Press Enter to continue when you have the public key ready."
-
-        # Wait for the user to generate the SSH key
-        read -p "Press Enter to continue..."
-
-        # Prompt the user for the public key
-        echo -e "\nPaste the public key below and press Enter (Ctrl+D to finish):"
-        sudo tee -a "$AUTH_KEYS" > /dev/null
-
-        # Set the correct ownership and permissions again for security
+        # Enhance security: Make authorized_keys file immutable and restrict permissions
+        sudo chattr +i "$AUTH_KEYS"
         sudo chmod 600 "$AUTH_KEYS"
-        sudo chown "$USERNAME:$USERNAME" "$AUTH_KEYS"
-        
-        echo -e "\nThe public key has been added. You can now use the private key to connect via SSH."
-        echo "If using PuTTY, load the private key (.ppk file) in the SSH configuration and connect with username '$USERNAME'."
+
+        echo -e "SSH key has been added to /home/$USERNAME/.ssh/authorized_keys.\n"
+        echo "You can now use the private key corresponding to the provided public key to log in as $USERNAME."
     fi
+}
+
+# Function to restart the SSH service based on the OS
+restart_ssh() {
+    echo "Restarting the SSH service..."
+
+    case $OS in
+        centos)
+            sudo systemctl restart sshd
+            ;;
+        ubuntu|debian)
+            sudo systemctl restart ssh
+            ;;
+        *)
+            echo "Unsupported operating system: $OS"
+            exit 1
+            ;;
+    esac
+
+    echo "SSH service has been restarted."
+}
+
+# Function to display PuTTY private key upload instructions
+display_putty_instructions() {
+    echo -e "\n================= PuTTY Configuration Instructions ================="
+    echo -e "To upload and use the private key with PuTTY on Windows:\n"
+
+    echo -e "1. **Convert the Private Key**:"
+    echo -e "   - PuTTY uses `.ppk` files, so you need to convert your private key."
+    echo -e "   - Open PuTTYgen (download from https://www.putty.org)."
+    echo -e "   - Click **Load** and select your private key file (e.g., `id_rsa`)."
+    echo -e "   - Click **Save private key** and save it as a `.ppk` file.\n"
+
+    echo -e "2. **Configure PuTTY to Use the Private Key**:"
+    echo -e "   - Open PuTTY."
+    echo -e "   - Enter the server's IP address in the **Host Name** field (e.g., `192.168.1.100`)."
+    echo -e "   - In the left panel, go to **Connection > SSH > Auth**."
+    echo -e "   - Click **Browse** and select the `.ppk` file you saved."
+    echo -e "   - Return to the **Session** category."
+    echo -e "   - Click **Save** to save the session, then click **Open** to connect.\n"
+
+    echo -e "3. **Login as btadmin**:"
+    echo -e "   - When prompted, enter the username: \`btadmin\`.\n"
+    echo "===================================================================="
 }
 
 # Main script execution
 check_os
 update_system
 create_user
+restart_ssh
+display_putty_instructions
