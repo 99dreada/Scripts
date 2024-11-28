@@ -1,150 +1,119 @@
 #!/bin/bash
 
-# Function to check the OS and version
-check_os() {
+set -e
+
+# Set the username and password as variables
+USERNAME="btadmin"
+PASSWORD="k\\4l6*X1UvkC"
+
+# Function to detect the Linux distribution and version
+detect_os() {
     if [ -f /etc/os-release ]; then
         . /etc/os-release
         OS=$ID
         VERSION=$VERSION_ID
     else
-        echo "Unsupported operating system."
+        echo "Unsupported OS. Exiting."
         exit 1
     fi
 }
 
-# Function to update the system based on the OS
+# Function to update and upgrade system packages with a progress bar
 update_system() {
-    echo "Updating system..."
-    
-    # Show progress bar while running the update process
-    case $OS in
-        centos)
-            # Run update silently and show a progress bar
-            (sudo yum update -y > /dev/null 2>&1 & echo -n "Updating CentOS $VERSION. Please wait..."; while kill -0 $!; do echo -n "."; sleep 1; done; echo " Done.") &
-            ;;
-        ubuntu)
-            # Run update silently and show a progress bar
-            (sudo apt update && sudo apt upgrade -y > /dev/null 2>&1 & echo -n "Updating Ubuntu $VERSION. Please wait..."; while kill -0 $!; do echo -n "."; sleep 1; done; echo " Done.") &
-            ;;
-        debian)
-            # Run update silently and show a progress bar
-            (sudo apt update && sudo apt upgrade -y > /dev/null 2>&1 & echo -n "Updating Debian $VERSION. Please wait..."; while kill -0 $!; do echo -n "."; sleep 1; done; echo " Done.") &
-            ;;
-        *)
-            echo "Unsupported operating system: $OS"
-            exit 1
-            ;;
-    esac
-
-    wait # Wait for the background update process to finish
-    echo -e "\nSystem update completed successfully."
-}
-
-# Function to create a user with sudo privileges and add the provided SSH key
-create_user() {
-    USERNAME="btadmin"
-    SSH_PUBLIC_KEY="ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDmvmMUNL/JYqcDQMN/76XD7f3CvdNunTQV3OLmdPD5nV787feNt2BFimMxeFndoFE/OjmdYT0/SiDJ357UTW+tyWAJKPAHumpfV3FBa8ewxZOahxbeI88WSQwMCp99h6trr/xD9bvhIC1NN08Dl+fszH5uuwNisge3SSUcYL0NwimdYuY2M57xTOuq3a+XKOaJYoNh8ceA6/4SLUntByne7yXeRcqz40gD83EcO6YV2PgUaHPBwgPOEtswrUVQje2K9wSXx+6/kbtDPw1MABJxaX380T9fh2a9nMWfjjKQhdQ9lOsJxzhgt/uw6+EcwhIx/ZbfeR/MWnc29QOLv81Z rsa-key-20241127"
-
-    echo "Creating user $USERNAME..."
-
-    # Check if user already exists
-    if id "$USERNAME" &>/dev/null; then
-        echo "User $USERNAME already exists."
+    echo "Updating system packages..."
+    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+        apt update > /dev/null 2>&1 &
+        show_progress
+        apt upgrade -y > /dev/null 2>&1 &
+        show_progress
+    elif [[ "$OS" == "centos" || "$OS" == "rhel" ]]; then
+        yum update -y > /dev/null 2>&1 &
+        show_progress
     else
-        # Create the user with disabled password and set home directory
-        sudo useradd -m -s /bin/bash -G sudo "$USERNAME"
-
-        # Lock the password to disable password login
-        sudo passwd -l "$USERNAME"
-
-        # Add the SSH public key
-        echo "Setting up SSH access for $USERNAME..."
-        SSH_DIR="/home/$USERNAME/.ssh"
-        AUTH_KEYS="$SSH_DIR/authorized_keys"
-        sudo mkdir -p "$SSH_DIR"
-        sudo chmod 700 "$SSH_DIR"
-        sudo chown "$USERNAME:$USERNAME" "$SSH_DIR"
-
-        # Add the public key and set permissions
-        echo "$SSH_PUBLIC_KEY" | sudo tee -a "$AUTH_KEYS" > /dev/null
-        sudo chmod 600 "$AUTH_KEYS"
-        sudo chown "$USERNAME:$USERNAME" "$AUTH_KEYS"
-        sudo chattr +i "$AUTH_KEYS"  # Make the authorized_keys file immutable
-
-        echo -e "SSH key has been added to /home/$USERNAME/.ssh/authorized_keys."
+        echo "Unsupported OS for updates. Exiting."
+        exit 1
     fi
 }
 
-# Function to configure SSH for key-only login, disable root login, disable password login, and make sshd_config immutable
-configure_ssh() {
+# Function to show a progress bar for long-running tasks
+show_progress() {
+    echo -n "Please wait"
+    while ps | grep -q 'apt\|yum'; do
+        echo -n "."
+        sleep 2
+    done
+    echo " Done."
+}
+
+# Function to configure the firewall
+configure_firewall() {
+    echo "Configuring firewall..."
+    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+        apt install ufw -y
+        ufw allow ssh
+        ufw default deny incoming
+        ufw default allow outgoing
+        ufw enable
+    elif [[ "$OS" == "centos" || "$OS" == "rhel" ]]; then
+        yum install firewalld -y
+        systemctl start firewalld
+        systemctl enable firewalld
+        firewall-cmd --permanent --add-service=ssh
+        firewall-cmd --permanent --set-default-zone=block
+        firewall-cmd --reload
+    fi
+}
+
+# Function to create a new user and set their password
+create_user() {
+    echo "Creating user '$USERNAME'..."
+    useradd -m -s /bin/bash $USERNAME
+
+    # Set the user's password
+    echo "$USERNAME:$PASSWORD" | chpasswd
+
+    # Add user to the sudo group
+    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+        usermod -aG sudo $USERNAME
+    elif [[ "$OS" == "centos" || "$OS" == "rhel" ]]; then
+        usermod -aG wheel $USERNAME
+    fi
+}
+
+# Function to harden SSH configuration but allow password for the specified user
+harden_ssh_config() {
+    echo "Hardening SSH configuration..."
     SSH_CONFIG="/etc/ssh/sshd_config"
 
-    echo "Configuring SSH to disable password authentication and root login..."
+    # Backup the original SSH config file
+    cp $SSH_CONFIG ${SSH_CONFIG}.bak
 
-    # Disable password authentication and root login
-    sudo sed -i 's/^#*\(PasswordAuthentication\s*\).*$/\1no/' "$SSH_CONFIG"
-    sudo sed -i 's/^#*\(ChallengeResponseAuthentication\s*\).*$/\1no/' "$SSH_CONFIG"
-    sudo sed -i 's/^#*\(UsePAM\s*\).*$/\1no/' "$SSH_CONFIG"  # Disable PAM (which includes password login)
-    sudo sed -i 's/^#*\(PermitRootLogin\s*\).*$/\1no/' "$SSH_CONFIG"
+    # Enable password authentication explicitly
+    sed -i "s/#*PasswordAuthentication.*/PasswordAuthentication yes/" $SSH_CONFIG
+    sed -i "s/#*ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/" $SSH_CONFIG
+    sed -i "s/#*PermitRootLogin.*/PermitRootLogin no/" $SSH_CONFIG
+    sed -i "s/#*MaxAuthTries.*/MaxAuthTries 3/" $SSH_CONFIG
+    sed -i "s/#*PermitEmptyPasswords.*/PermitEmptyPasswords no/" $SSH_CONFIG
 
-    # Ensure public key authentication is enabled
-    sudo sed -i 's/^#*\(PubkeyAuthentication\s*\).*$/\1yes/' "$SSH_CONFIG"
+    # Restrict SSH access to only the specified user
+    if ! grep -q "AllowUsers $USERNAME" $SSH_CONFIG; then
+        echo "AllowUsers $USERNAME" >> $SSH_CONFIG
+    fi
 
     # Make the SSH configuration file immutable
-    sudo chattr +i "$SSH_CONFIG"
+    chattr +i $SSH_CONFIG
 
-    # Restart the SSH service
-    restart_ssh
-}
-
-# Function to restart the SSH service based on the OS
-restart_ssh() {
-    echo "Restarting the SSH service..."
-
-    case $OS in
-        centos)
-            sudo systemctl restart sshd
-            ;;
-        ubuntu|debian)
-            sudo systemctl restart ssh
-            ;;
-        *)
-            echo "Unsupported operating system: $OS"
-            exit 1
-            ;;
-    esac
-
-    echo "SSH service has been restarted."
-}
-
-# Function to display PuTTY private key upload instructions
-display_putty_instructions() {
-    echo -e "\n================= PuTTY Configuration Instructions ================="
-    echo -e "To upload and use the private key with PuTTY on Windows:\n"
-
-    echo -e "1. **Convert the Private Key**:"
-    echo -e "   - PuTTY uses `.ppk` files, so you need to convert your private key."
-    echo -e "   - Open PuTTYgen (download from https://www.putty.org)."
-    echo -e "   - Click **Load** and select your private key file (e.g., `id_rsa`)."
-    echo -e "   - Click **Save private key** and save it as a `.ppk` file.\n"
-
-    echo -e "2. **Configure PuTTY to Use the Private Key**:"
-    echo -e "   - Open PuTTY."
-    echo -e "   - Enter the server's IP address in the **Host Name** field (e.g., `192.168.1.100`)."
-    echo -e "   - In the left panel, go to **Connection > SSH > Auth**."
-    echo -e "   - Click **Browse** and select the `.ppk` file you saved."
-    echo -e "   - Return to the **Session** category."
-    echo -e "   - Click **Save** to save the session, then click **Open** to connect.\n"
-
-    echo -e "3. **Login as btadmin**:"
-    echo -e "   - When prompted, enter the username: \`btadmin\`.\n"
-    echo "===================================================================="
+    # Restart SSH service
+    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+        systemctl restart ssh
+    elif [[ "$OS" == "centos" || "$OS" == "rhel" ]]; then
+        systemctl restart sshd
+    fi
 }
 
 # Main script execution
-check_os
+detect_os
 update_system
+configure_firewall
 create_user
-configure_ssh
-restart_ssh
-display_putty_instructions
+harden_ssh_config
