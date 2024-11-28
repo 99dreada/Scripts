@@ -67,16 +67,27 @@ configure_firewall() {
 # Function to create a new user and set their password
 create_user() {
     echo "Creating user '$USERNAME'..."
-    useradd -m -s /bin/bash $USERNAME
 
-    # Set the user's password
-    echo "$USERNAME:$PASSWORD" | chpasswd
+    # Check if the user already exists
+    if id "$USERNAME" &>/dev/null; then
+        echo "User $USERNAME already exists. Skipping user creation."
+    else
+        # Create the user
+        useradd -m -s /bin/bash $USERNAME
+        echo "User $USERNAME created successfully."
 
-    # Add user to the sudo group
-    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
-        usermod -aG sudo $USERNAME
-    elif [[ "$OS" == "centos" || "$OS" == "rhel" ]]; then
-        usermod -aG wheel $USERNAME
+        # Set the user's password
+        echo "$USERNAME:$PASSWORD" | chpasswd
+        echo "Password set for user $USERNAME."
+
+        # Add user to the sudo or wheel group based on the OS
+        if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
+            usermod -aG sudo $USERNAME
+        elif [[ "$OS" == "centos" || "$OS" == "rhel" ]]; then
+            usermod -aG wheel $USERNAME
+        fi
+
+        echo "User $USERNAME added to sudo/wheel group."
     fi
 }
 
