@@ -5,6 +5,19 @@ lINUX SCRIPT
 
 to run the linux script use the following
 
+install curl 
+
+ubuntu/debian
+```
+apt-get install curl
+```
+
+centos
+````
+yum install curl
+````
+
+Main script
 ```
 curl -sSL https://raw.githubusercontent.com/99dreada/Scripts/refs/heads/main/Linux_update_script.sh -o script.sh
 chmod +x script.sh
